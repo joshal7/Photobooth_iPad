@@ -1,0 +1,84 @@
+PRODUCT REQUIREMENTS DOCUMENT: SONY A7R II IPAD PHOTOBOOTH
+	1	EXECUTIVE SUMMARY Develop a native iOS (Swift/SwiftUI) iPad application designed to function as an autonomous photobooth kiosk. The app connects wirelessly to a Sony A7R II (Firmware 4.0) to provide a live view, trigger capture sequences, and review images. The system prioritizes stability and automated recovery over frame-perfect latency.
+	2	HARDWARE & ENVIRONMENT
+	•	Camera: Sony A7R II (Firmware 4.0).
+	◦	Connection Mode: Wi-Fi (Access Point Mode) running the "Smart Remote Control" embedded app.
+	•	Compute: iPad 7th Generation (iPadOS 15+).
+	◦	Orientation: Fixed Landscape.
+	◦	Mounting: Enclosed box (user cannot access physical buttons easily).
+	•	Power: Both devices connected to continuous AC power.
+	3	CONFIGURATION VARIABLES (SETTINGS) The app must utilize a ConfigManager singleton to store and retrieve the following editable settings:
+	•	initial_countdown_sec (X): Time before the 1st photo (Default: 5s).
+	•	inter_shot_countdown_sec (Y): Time between subsequent photos (Default: 2s).
+	•	photo_count (N): Total photos per session (Default: 3).
+	•	preview_duration_sec (Z): Time each photo is shown in the review phase (Default: 4s).
+	•	camera_endpoint: The base URL for the Sony API (Default: https://www.google.com/search?q=http://192.168.122.1:8080/sony).
+	4	USER INTERFACE (UI) REQUIREMENTS
+A. LIVE VIEW (IDLE STATE)
+	•	Background: Full-screen live video stream (Motion JPEG) fetched from the camera.
+	•	Overlay:
+	◦	Trigger Button: A massive, semi-transparent circular button centered at the bottom or completely invisible overlay covering the bottom 30% of the screen. Text: "TAP TO START".
+	◦	Status Indicator: Tiny dot in the top right corner (Green = Connected, Red = Disconnected/Reconnecting).
+B. COUNTDOWN OVERLAY (ACTIVE STATE)
+	•	Visuals: Large, high-contrast typography centered on the screen.
+	•	Animation: Scale/fade effect on each second tick (e.g., 5... 4... 3...).
+	•	Flash: A white screen flash overlay (opacity: 1.0 -> 0.0) immediately when the shutter command is sent to simulate a flash and provide feedback.
+C. REVIEW MODE (POST-SESSION)
+	•	Layout: Full-screen single image view.
+	•	Transition: Auto-advance to the next image after preview_duration_sec.
+	•	Exit: After the last image, fade back to Live View (Idle State).
+	5	FUNCTIONAL LOGIC & STATE MACHINE
+The app should be architected as a State Machine with the following states:
+STATE 1: INITIALIZATION & HANDSHAKE
+	1	Check iPad Wi-Fi connection.
+	2	Ping https://www.google.com/search?q=http://192.168.122.1:8080/sony/camera.
+	3	Send JSON-RPC startRecMode.
+	4	Send JSON-RPC startLiveview.
+	5	Success: Transition to STATE 2 (IDLE).
+	6	Fail: Transition to STATE 5 (ERROR/RECONNECT).
+STATE 2: IDLE (LIVE VIEW)
+	•	Display MJPEG stream from the liveviewUrl returned by the API.
+	•	Listen for User Tap.
+	•	On Tap: Transition to STATE 3 (CAPTURE SEQUENCE).
+STATE 3: CAPTURE SEQUENCE
+	•	Loop N times:
+	1	Countdown: Display counter (Duration: X for first, Y for others).
+	2	Trigger: Send JSON-RPC actTakePicture.
+	3	Await Response: The API returns a URL array.
+	4	Fetch Postview: Do NOT download the full RAW/JPG. Download the "postview" (preview) image URL to a temporary array in memory. (This ensures speed).
+	5	Feedback: Flash screen white.
+	•	Completion: When N images are captured, transition to STATE 4 (REVIEW).
+STATE 4: REVIEW SEQUENCE
+	•	Iterate through the temporary array of fetched postview images.
+	•	Display Image[i] for preview_duration_sec.
+	•	Completion: Clear temporary memory, transition to STATE 2 (IDLE).
+	6	SONY CAMERA REMOTE API SPECIFICS (TECHNICAL SPECS)
+	•	Protocol: JSON-RPC over HTTP.
+	•	Service: "service: camera".
+	•	Method: actTakePicture
+	◦	Note: The A7R II takes time to write to the SD card. The app must await the response.
+	◦	Response: Contains "result" array with URLs. Index [0] is usually the large JPEG/RAW. Use the fallback or specific preview URL if available in the payload to save bandwidth.
+	•	Method: startLiveview
+	◦	Response: Returns a URL for the live stream.
+	◦	Implementation: The app needs a robust MJPEG consumer that can handle frame drops without crashing.
+	7	CONNECTIVITY & RECOVERY PROTOCOL (CRUCIAL)
+A. THE "HEARTBEAT"
+	•	Implement a background timer (every 5 seconds) that sends getEvent or getAvailableApiList.
+	•	If the request times out or fails 2 times in a row: Trigger MANUAL RECONNECT PROTOCOL.
+B. MANUAL RECONNECT PROTOCOL
+	1	UI Change: Show a full-screen modal: "Camera Disconnected. Attempting Reconnect..."
+	2	Logic:
+	◦	Attempt to re-establish the HTTP handshake (startRecMode).
+	◦	If startRecMode returns "Already in Rec Mode" (error 40402), proceed to startLiveview.
+	◦	If connection is successful, dismiss modal and return to Idle.
+C. THE "SSID STICKY" ISSUE (INSTRUCTIONAL POPUP) If the iPad defaults back to the Home Wi-Fi (Internet) when the Camera Wi-Fi drops:
+	•	The app detects it is no longer on the DIRECT-xxxx:Sony subnet (IP is not in 192.168.122.x range).
+	•	Action: Display a specific instructional alert: "Connection Lost. Please go to iPad Settings > Wi-Fi.
+	1	Forget your Home/Office Network (or turn off Auto-Join).
+	2	Select 'DIRECT-xxxx:Sony'.
+	3	Tap 'Retry' below."
+	8	DEVELOPMENT GUIDELINES FOR CODE GENERATION
+	9	Language: Swift 5.x (UIKit or SwiftUI).
+	10	Networking: Use URLSession with short timeout intervals (3 seconds) to fail fast.
+	11	Image Caching: Use a lightweight image cache for the session; clear it when returning to Idle state to prevent memory leaks on the 7th Gen iPad (3GB RAM).
+	12	Mock Mode: Include a DEBUG flag that mocks the Camera API so the UI flow can be tested in the iOS Simulator without the physical camera.
