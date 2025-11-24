@@ -10,8 +10,9 @@ enum AppState: Equatable {
     case review(images: [String], index: Int)
     case error(message: String)
     case wifiMismatch(targetSSID: String)
+    case sharingPrompt(images: [String])
+    case airDrop(images: [String])
 }
-
 @MainActor
 class StateMachine: ObservableObject {
     @Published var state: AppState = .initialization
@@ -20,6 +21,7 @@ class StateMachine: ObservableObject {
     @Published var countdown: Int = 0
     @Published var isFlashing: Bool = false
     @Published var showGuidance: Bool = false
+    @Published var currentPhotoNumber: Int = 0
     
     private var cameraService: CameraService
     private let config: ConfigManager
@@ -94,6 +96,36 @@ class StateMachine: ObservableObject {
         transition(to: .initialization)
     }
     
+    func handleAppDidBecomeActive() {
+        Task { @MainActor in
+            print("App became active, checking connection...")
+            
+            // Only restart if we are in a state that expects a live view
+            if case .idle = state {
+                // Check connection first
+                let isConnected = await cameraService.checkConnection()
+                if isConnected {
+                    // Restart live view
+                    print("Connection healthy, restarting live view")
+                    try? await cameraService.startLiveView()
+                } else {
+                    // Connection lost while backgrounded
+                    print("Connection lost while backgrounded")
+                    if !config.useLocalCamera {
+                        transition(to: .wifiMismatch(targetSSID: config.cameraSSID))
+                    } else {
+                        transition(to: .error(message: "Camera disconnected"))
+                    }
+                }
+            } else if case .wifiMismatch = state {
+                // If we were already mismatching, check again
+                if !config.useLocalCamera {
+                    transition(to: .wifiMismatch(targetSSID: config.cameraSSID))
+                }
+            }
+        }
+    }
+    
     func transition(to newState: AppState) {
         print("Transitioning to: \(newState)")
         self.state = newState
@@ -120,6 +152,20 @@ class StateMachine: ObservableObject {
             
         case .wifiMismatch(let targetSSID):
             Task { await monitorWifiConnection(targetSSID: targetSSID) }
+            
+        case .sharingPrompt(_):
+            // Start 10s timeout
+            Task {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                await MainActor.run {
+                    if case .sharingPrompt = self.state {
+                        self.transition(to: .idle)
+                    }
+                }
+            }
+            
+        case .airDrop:
+            break // Handled by UI interactions
         }
     }
     
@@ -221,6 +267,24 @@ class StateMachine: ObservableObject {
         transition(to: .capture(count: 0))
     }
     
+    func selectAirDrop() {
+        if case .sharingPrompt(let images) = state {
+            transition(to: .airDrop(images: images))
+        }
+    }
+    
+    func selectTextLater() {
+        // Removed
+    }
+    
+    func skipSharing() {
+        transition(to: .idle)
+    }
+    
+    func submitPhoneNumber(_ number: String) {
+        // Removed
+    }
+    
 
     private func startCaptureSequence() async {
         capturedImages.removeAll()
@@ -249,20 +313,33 @@ class StateMachine: ObservableObject {
                     }
                     self.showGuidance = false
                     
+                    // Set photo number AFTER guidance completes
+                    self.currentPhotoNumber = i + 1
+                    
                     // Calculate remaining countdown
                     // Reduce initial countdown by 3s, but ensure minimum of 3s
                     countTime = max(3, config.initialCountdownSec - 3)
                 } else {
+                    // Guidance disabled, set photo number immediately
+                    self.currentPhotoNumber = i + 1
                     // Guidance disabled, use full initial countdown
                     countTime = config.initialCountdownSec
                 }
             } else {
+                // Subsequent photos - number was already set at end of previous iteration
+                // (after flash fade completed)
                 countTime = config.interShotCountdownSec
             }
             
             // Run countdown
             for t in (1...countTime).reversed() {
                 self.countdown = t
+                
+                // Hide photo counter when countdown reaches 1
+                if t == 1 {
+                    self.currentPhotoNumber = 0
+                }
+                
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
             self.countdown = 0
@@ -309,12 +386,21 @@ class StateMachine: ObservableObject {
             // The flash takes 1.0s total (0.5 hold + 0.5 fade).
             // We want the next countdown to start *after* the fade is done.
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            
+            // Set the next photo number if there is one (for subsequent photos)
+            // This will appear as soon as the flash fade completes
+            if i + 1 < totalPhotos {
+                self.currentPhotoNumber = i + 2  // Next photo number (1-indexed)
+            }
         }
         
         // Wait for the final capture to finish
         if let task = previousCaptureTask {
             _ = await task.result
         }
+        
+        // Clear photo counter
+        self.currentPhotoNumber = 0
         
         transition(to: .review(images: capturedImages, index: 0))
     }
@@ -355,7 +441,11 @@ class StateMachine: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(config.previewDurationSec) * 1_000_000_000)
         }
         
-        transition(to: .idle)
+        if config.enableImageSharing {
+            transition(to: .sharingPrompt(images: images))
+        } else {
+            transition(to: .idle)
+        }
     }
     
     func retryConnection() {

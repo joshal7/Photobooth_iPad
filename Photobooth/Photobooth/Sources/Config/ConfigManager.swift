@@ -14,6 +14,7 @@ class ConfigManager: ObservableObject {
     @Published var useLocalCamera: Bool
     @Published var saveToPhotos: Bool
     @Published var showGuidanceText: Bool
+    @Published var enableImageSharing: Bool
     
     private init() {
         // Load from UserDefaults or use defaults
@@ -28,6 +29,7 @@ class ConfigManager: ObservableObject {
         self.useLocalCamera = UserDefaults.standard.object(forKey: "useLocalCamera") as? Bool ?? false
         self.saveToPhotos = UserDefaults.standard.object(forKey: "saveToPhotos") as? Bool ?? true // Default to true
         self.showGuidanceText = UserDefaults.standard.object(forKey: "showGuidanceText") as? Bool ?? true // Default to true
+        self.enableImageSharing = UserDefaults.standard.object(forKey: "enableImageSharing") as? Bool ?? true // Default to true
         
         // Migration: Fix old default SSID if present
         if self.cameraSSID == "DIRECT-xxxx:Sony" {
@@ -51,6 +53,7 @@ class ConfigManager: ObservableObject {
         UserDefaults.standard.set(useLocalCamera, forKey: "useLocalCamera")
         UserDefaults.standard.set(saveToPhotos, forKey: "saveToPhotos")
         UserDefaults.standard.set(showGuidanceText, forKey: "showGuidanceText")
+        UserDefaults.standard.set(enableImageSharing, forKey: "enableImageSharing")
     }
     
     func resetToDefaults() {
@@ -64,6 +67,7 @@ class ConfigManager: ObservableObject {
         self.useLocalCamera = false
         self.saveToPhotos = true
         self.showGuidanceText = true
+        self.enableImageSharing = true
         save()
     }
 }

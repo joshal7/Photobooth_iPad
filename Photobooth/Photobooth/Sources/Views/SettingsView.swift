@@ -14,9 +14,32 @@ struct SettingsView: View {
                     Stepper("Preview Duration: \(config.previewDurationSec)s", value: $config.previewDurationSec, in: 1...10)
                 }
                 
-                Section(header: Text("General")) {
-                    Toggle("Save to Photos", isOn: $config.saveToPhotos)
-                    Toggle("Show Guidance Text", isOn: $config.showGuidanceText)
+                Section(header: Text("Sharing")) {
+                    Toggle("Enable Image Sharing", isOn: Binding(
+                        get: { config.enableImageSharing },
+                        set: { newValue in
+                            config.enableImageSharing = newValue
+                            if newValue {
+                                // If sharing is enabled, we MUST save to photos
+                                config.saveToPhotos = true
+                            }
+                        }
+                    ))
+                    
+                    if config.enableImageSharing {
+                        Toggle("Show Guidance Text", isOn: $config.showGuidanceText)
+                    }
+                    
+                    Toggle("Save to Photos", isOn: Binding(
+                        get: { config.saveToPhotos },
+                        set: { newValue in
+                            config.saveToPhotos = newValue
+                            if !newValue {
+                                // If saving is disabled, we CANNOT share (need local file)
+                                config.enableImageSharing = false
+                            }
+                        }
+                    ))
                 }
                 
                 Section(header: Text("Camera Configuration")) {

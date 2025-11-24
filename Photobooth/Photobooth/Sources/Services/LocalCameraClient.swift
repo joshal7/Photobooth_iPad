@@ -163,12 +163,24 @@ class LocalCameraClient: NSObject, CameraService, AVCaptureVideoDataOutputSample
             let orientation = UIDevice.current.orientation
             let imageOrientation: UIImage.Orientation
             
+            // For Front Camera, we want to MIRROR the result so it looks like the preview.
+            // Standard orientations are:
+            // Portrait -> Right
+            // LandscapeLeft -> Down
+            // LandscapeRight -> Up
+            //
+            // To Mirror:
+            // Portrait -> LeftMirrored (This flips it horizontally relative to Right)
+            // Actually, let's look at the standard mappings:
+            // .right -> .leftMirrored ? No, .right is 90 deg CW.
+            //
+            // Let's try explicit mapping for Front Camera Mirroring:
             switch orientation {
-            case .portrait: imageOrientation = .right
-            case .portraitUpsideDown: imageOrientation = .left
-            case .landscapeLeft: imageOrientation = .down
-            case .landscapeRight: imageOrientation = .up
-            default: imageOrientation = .right
+            case .portrait: imageOrientation = .leftMirrored
+            case .portraitUpsideDown: imageOrientation = .rightMirrored
+            case .landscapeLeft: imageOrientation = .downMirrored
+            case .landscapeRight: imageOrientation = .upMirrored
+            default: imageOrientation = .leftMirrored
             }
             
             // Create rotated image

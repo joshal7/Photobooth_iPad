@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var stateMachine: StateMachine
+
     @State private var showSettings = false
     
     var body: some View {
@@ -26,7 +27,7 @@ struct ContentView: View {
                 ZStack {
                     VStack {
                         Spacer()
-                        Text("TAP TO START")
+                        Text("TAP TO TAKE \(ConfigManager.shared.photoCount) PHOTO\(ConfigManager.shared.photoCount == 1 ? "" : "S")")
                             .font(.system(size: 60, weight: .heavy))
                             .foregroundColor(.white)
                             .padding(.bottom, 50)
@@ -49,6 +50,22 @@ struct ContentView: View {
                     } else {
                         CountdownView()
                             .transition(.opacity)
+                    }
+                    
+                    // Photo counter in upper right
+                    if stateMachine.currentPhotoNumber > 0 {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Text("\(stateMachine.currentPhotoNumber) of \(ConfigManager.shared.photoCount)")
+                                    .font(.system(size: 60, weight: .heavy))
+                                    .foregroundColor(.white)
+                                    .shadow(radius: 10)
+                                    .padding(.top, 50)
+                                    .padding(.trailing, 50)
+                            }
+                            Spacer()
+                        }
                     }
                 }
                 
@@ -131,6 +148,12 @@ struct ContentView: View {
                 .padding()
                 .background(Color.black.opacity(0.8))
                 .cornerRadius(20)
+                
+            case .sharingPrompt:
+                SharingOverlayView()
+                
+            case .airDrop(let images):
+                AirDropInstructionsView(images: images)
             }
             
             // Global Settings Button Overlay
