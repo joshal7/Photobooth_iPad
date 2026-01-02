@@ -9,27 +9,16 @@ struct ReviewView: View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
-            if currentIndex < images.count {
-                AsyncImage(url: URL(string: images[currentIndex])) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .scaleEffect(2.0)
-                            .colorScheme(.dark)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    case .failure:
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .transition(.opacity)
-                .id(currentIndex)
+            if let image = stateMachine.currentReviewImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .transition(.opacity)
+                    .id(currentIndex)
+            } else {
+                ProgressView()
+                    .scaleEffect(2.0)
+                    .colorScheme(.dark)
             }
             
             // Optional: Overlay showing "Reviewing X of N"

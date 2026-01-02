@@ -17,6 +17,7 @@ enum AppState: Equatable {
 class StateMachine: ObservableObject {
     @Published var state: AppState = .initialization
     @Published var previewImage: UIImage?
+    @Published var currentReviewImage: UIImage?
     @Published var capturedImages: [String] = []
     @Published var countdown: Int = 0
     @Published var isFlashing: Bool = false
@@ -344,6 +345,7 @@ class StateMachine: ObservableObject {
             }
             self.countdown = 0
             
+            
 
             
             // 3. Trigger & Flash
@@ -437,8 +439,31 @@ class StateMachine: ObservableObject {
         guard case .review(let images, _) = state else { return }
         
         for i in 0..<images.count {
+            // Update state index
             self.state = .review(images: images, index: i)
-            try? await Task.sleep(nanoseconds: UInt64(config.previewDurationSec) * 1_000_000_000)
+            
+            // 1. Reset current image to show loading state
+            self.currentReviewImage = nil
+            
+            // 2. Fetch Image Data
+            do {
+                let data = try await cameraService.fetchImage(url: images[i])
+                if let image = UIImage(data: data) {
+                    // 3. Set image
+                    self.currentReviewImage = image
+                    
+                    // 4. Wait for preview duration (ONLY start timer after image is ready)
+                    try? await Task.sleep(nanoseconds: UInt64(config.previewDurationSec) * 1_000_000_000)
+                } else {
+                    // Failed to decode, skip quickly
+                    print("Failed to decode image at index \(i)")
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            } catch {
+                print("Failed to fetch image at index \(i): \(error)")
+                // Show error or skip? Just wait a bit and move on
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
         }
         
         if config.enableImageSharing {
