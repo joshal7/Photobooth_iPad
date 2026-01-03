@@ -14,6 +14,41 @@ struct SettingsView: View {
                     Stepper("Preview Duration: \(config.previewDurationSec)s", value: $config.previewDurationSec, in: 1...10)
                 }
                 
+                Section(header: Text("Animated GIF")) {
+                    Toggle("Enable Animated GIF Mode", isOn: $config.enableGIFMode)
+                    
+                    if config.enableGIFMode {
+                        // Frame Count: Max 10 frames
+                        Stepper("GIF Frame Count: \(config.gifFrameCount)", value: $config.gifFrameCount, in: 2...10)
+                        
+                        // Capture Interval: Min 0.1s
+                        // Capture Interval: Min 0.1s
+                        if !config.useLocalCamera {
+                            HStack {
+                                Text("Capture Interval")
+                                Spacer()
+                                Text("-")
+                                    .foregroundColor(.gray)
+                            }
+                        } else {
+                            Stepper("Capture Interval: \(String(format: "%.2f", config.gifCaptureInterval))s", value: $config.gifCaptureInterval, in: 0.1...2.0, step: 0.05)
+                        }
+                        
+                        // Frame Duration
+                        Stepper("Frame Duration: \(String(format: "%.2f", config.gifFrameDuration))s", value: $config.gifFrameDuration, in: 0.05...1.0, step: 0.05)
+                        
+                        // GIF Preview Duration
+                        Stepper("Photo Preview: \(String(format: "%.1f", config.gifPreviewDuration))s", value: $config.gifPreviewDuration, in: 1...30, step: 1.0)
+                        
+                        // Resolution
+                        Picker("GIF Resolution", selection: $config.gifResolution) {
+                            Text("720p").tag(0)
+                            Text("480p").tag(1)
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                    }
+                }
+                
                 Section(header: Text("Sharing")) {
                     Toggle("Enable Image Sharing", isOn: Binding(
                         get: { config.enableImageSharing },

@@ -202,8 +202,8 @@ struct AirDropInstructionsView: View {
             
             for path in images {
                 if let url = URL(string: path) {
-                    if url.scheme == "file" {
-                        items.append(url)
+                    if url.isFileURL { // Covers file:// scheme
+                         items.append(url)
                     } else {
                         // Remote URL: Download to temp
                         if let data = try? await URLSession.shared.data(from: url).0 {

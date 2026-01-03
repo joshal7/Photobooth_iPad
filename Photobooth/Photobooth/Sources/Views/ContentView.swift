@@ -23,22 +23,75 @@ struct ContentView: View {
                     .foregroundColor(.white)
                     .scaleEffect(1.5)
                 
+            case .processing(let message):
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(2.0)
+                        .colorScheme(.dark)
+                    Text(message)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+                
             case .idle:
                 ZStack {
-                    VStack {
-                        Spacer()
-                        Text("TAP TO TAKE \(ConfigManager.shared.photoCount) PHOTO\(ConfigManager.shared.photoCount == 1 ? "" : "S")")
-                            .font(.system(size: 60, weight: .heavy))
-                            .foregroundColor(.white)
-                            .padding(.bottom, 50)
-                            .shadow(radius: 10)
+                    if ConfigManager.shared.enableGIFMode {
+                        // Split Screen UI
+                        VStack(spacing: 0) {
+                            // Top: GIF Mode
+                            Button(action: {
+                                stateMachine.triggerCapture(mode: .gif)
+                            }) {
+                                ZStack {
+                                    Color.black.opacity(0.01) // Tappable area
+                                    Text("Create an animated gif")
+                                        .font(.system(size: 50, weight: .heavy))
+                                        .foregroundColor(.white)
+                                        .shadow(radius: 10)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            
+                            // Divider / "Or"
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(height: 2)
+                                Text(" OR ")
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                            }
+                            
+                            // Bottom: Standard Mode
+                            Button(action: {
+                                stateMachine.triggerCapture(mode: .standard)
+                            }) {
+                                ZStack {
+                                    Color.black.opacity(0.01) // Tappable area
+                                    Text("Take \(ConfigManager.shared.photoCount) Photos")
+                                        .font(.system(size: 50, weight: .heavy))
+                                        .foregroundColor(.white)
+                                        .shadow(radius: 10)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else {
+                        // Standard Single Mode
+                        VStack {
+                            Spacer()
+                            Text("TAP TO TAKE \(ConfigManager.shared.photoCount) PHOTO\(ConfigManager.shared.photoCount == 1 ? "" : "S")")
+                                .font(.system(size: 60, weight: .heavy))
+                                .foregroundColor(.white)
+                                .padding(.bottom, 50)
+                                .shadow(radius: 10)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            stateMachine.triggerCapture(mode: .standard)
+                        }
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        stateMachine.triggerCapture()
-                    }
-                    
-                    
                 }
                 
             case .capture:
@@ -50,6 +103,20 @@ struct ContentView: View {
                     } else {
                         CountdownView()
                             .transition(.opacity)
+                    }
+                    
+                    // Pose indicator for GIF captures (external camera only)
+                    // Uses animation to fade in, providing visual break between pose changes
+                    if let pose = stateMachine.poseIndicator {
+                        Text(pose)
+                            .font(.system(size: 50, weight: .heavy))
+                            .foregroundColor(.white)
+                            .shadow(radius: 10)
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(.easeIn(duration: 0.5)),
+                                removal: .opacity.animation(.easeOut(duration: 0.1))
+                            ))
+                            .id(pose) // Force new view for each pose change, triggering animation
                     }
                     
                     // Photo counter in upper right

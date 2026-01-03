@@ -7,11 +7,17 @@ enum AppState: Equatable {
     case initialization
     case idle
     case capture(count: Int)
+    case processing(message: String)
     case review(images: [String], index: Int)
     case error(message: String)
     case wifiMismatch(targetSSID: String)
     case sharingPrompt(images: [String])
     case airDrop(images: [String])
+}
+
+enum CaptureMode: Equatable {
+    case standard
+    case gif
 }
 @MainActor
 class StateMachine: ObservableObject {
@@ -23,6 +29,8 @@ class StateMachine: ObservableObject {
     @Published var isFlashing: Bool = false
     @Published var showGuidance: Bool = false
     @Published var currentPhotoNumber: Int = 0
+    @Published var captureMode: CaptureMode = .standard
+    @Published var poseIndicator: String? = nil
     
     private var cameraService: CameraService
     private let config: ConfigManager
@@ -139,7 +147,16 @@ class StateMachine: ObservableObject {
             Task { await startLiveView() }
             
         case .capture:
-            Task { await startCaptureSequence() }
+            Task {
+                if self.captureMode == .gif {
+                     await startGIFCaptureSequence()
+                } else {
+                    await startCaptureSequence()
+                }
+            }
+            
+        case .processing:
+            break
             
         case .review(let images, _):
             if images.isEmpty {
@@ -263,8 +280,9 @@ class StateMachine: ObservableObject {
         }
     }
     
-    func triggerCapture() {
+    func triggerCapture(mode: CaptureMode = .standard) {
         guard case .idle = state else { return }
+        self.captureMode = mode
         transition(to: .capture(count: 0))
     }
     
@@ -404,7 +422,226 @@ class StateMachine: ObservableObject {
         // Clear photo counter
         self.currentPhotoNumber = 0
         
+        // Clear photo counter
+        self.currentPhotoNumber = 0
+        
         transition(to: .review(images: capturedImages, index: 0))
+    }
+    
+    private func startGIFCaptureSequence() async {
+        print("Starting GIF Capture Sequence")
+        capturedImages.removeAll()
+        
+        // 1. Countdown
+        var countTime: Int = config.initialCountdownSec
+        
+        // Guidance
+        if config.showGuidanceText {
+            self.showGuidance = true
+            // Wait 3 seconds for guidance
+            for _ in 0..<3 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            self.showGuidance = false
+            
+            // Calculate remaining countdown
+            countTime = max(3, config.initialCountdownSec - 3)
+        }
+        
+        // Run countdown
+        for t in (1...countTime).reversed() {
+            self.countdown = t
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        self.countdown = 0
+        
+        // Trigger Flash
+        withAnimation(.linear(duration: 0)) { self.isFlashing = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await MainActor.run {
+                withAnimation(.easeIn(duration: 0.5)) { self.isFlashing = false }
+            }
+        }
+        
+        // 2. Burst Capture
+        let frameCount = config.gifFrameCount
+        let interval = config.gifCaptureInterval
+        
+        if config.useLocalCamera {
+            // iPad Camera: Use existing adaptive loop
+            for i in 0..<frameCount {
+                do {
+                    if i == 0 {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                    
+                    let startTime = Date()
+                    print("Triggering GIF frame \(i+1)")
+                    let urls = try await cameraService.takePicture()
+                    if let first = urls.first {
+                        capturedImages.append(first)
+                    }
+                    
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let remaining = max(0, interval - elapsed)
+                    if remaining > 0 {
+                         try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                    }
+                } catch {
+                    print("Failed to capture GIF frame \(i): \(error)")
+                }
+            }
+        } else {
+            // External Camera (Sony): Robust loop with parallel UI updates
+            let poseNames = ["Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"]
+            
+            for i in 0..<frameCount {
+                var retries = 5
+                var captureSuccess = false
+                
+                while retries > 0 && !captureSuccess {
+                    do {
+                        // Clear pose indicator right before trigger
+                        await MainActor.run { self.poseIndicator = nil }
+                        
+                        if i == 0 && retries == 5 {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                        }
+                        
+                        print("Triggering GIF frame \(i+1) (Sony)...")
+                        
+                        // Parallel UI Update: trigger capture but show next pose while processing
+                        let currentI = i
+                        async let captureTask = cameraService.takePicture()
+                        
+                        // In parallel, wait 1s (shutter fired) then show next pose prompt
+                        if currentI < frameCount - 1 && currentI < poseNames.count {
+                            Task {
+                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s after shutter
+                                await MainActor.run {
+                                    self.poseIndicator = "\(poseNames[currentI]) Pose"
+                                }
+                            }
+                        }
+                        
+                        let urls = try await captureTask
+                        if let first = urls.first {
+                            capturedImages.append(first)
+                            print("Frame \(i+1) captured successfully")
+                            captureSuccess = true
+                        }
+                    } catch let error as CameraError {
+                        if case .apiError(let code, _) = error, code == 1 {
+                            print("Camera busy (Error 1). Retrying in 2s...")
+                            retries -= 1
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        } else {
+                            await MainActor.run { self.isFlashing = false; self.poseIndicator = nil }
+                            transition(to: .error(message: "Capture Failed: \(error.localizedDescription)"))
+                            return
+                        }
+                    } catch let error as URLError {
+                        if error.code == .timedOut || error.code == .networkConnectionLost || error.code == .notConnectedToInternet {
+                            print("Network error (\(error.code.rawValue)). Retrying in 2s...")
+                            retries -= 1
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        } else {
+                            await MainActor.run { self.isFlashing = false; self.poseIndicator = nil }
+                            transition(to: .error(message: "Capture Failed: \(error.localizedDescription)"))
+                            return
+                        }
+                    } catch {
+                        print("Unexpected error during capture: \(error)")
+                        await MainActor.run { self.isFlashing = false; self.poseIndicator = nil }
+                        transition(to: .error(message: "Capture Failed: \(error.localizedDescription)"))
+                        return
+                    }
+                }
+                
+                if !captureSuccess {
+                    print("Failed to capture frame \(i+1) after all retries")
+                    await MainActor.run { self.isFlashing = false; self.poseIndicator = nil }
+                    transition(to: .error(message: "Camera connection lost. Please check Wi-Fi and restart the camera."))
+                    return
+                }
+            }
+            
+            // Final cleanup
+            await MainActor.run { self.poseIndicator = nil }
+        }
+        
+        // 3. Transfer & Processing
+        transition(to: .processing(message: "Downloading images..."))
+        
+        var tempPaths: [String] = []
+        
+        for (index, urlString) in capturedImages.enumerated() {
+             await MainActor.run {
+                if case .processing = self.state {
+                    self.state = .processing(message: "Downloading \(index + 1) of \(capturedImages.count)...")
+                }
+            }
+            
+            do {
+                let data = try await cameraService.fetchImage(url: urlString)
+                
+                let filename = UUID().uuidString + ".jpg"
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+                try data.write(to: tempURL)
+                tempPaths.append(tempURL.path)
+            } catch {
+                print("Failed to download image \(index): \(error)")
+            }
+        }
+        
+        // 4. Create GIF
+        await MainActor.run {
+             self.state = .processing(message: "Creating GIF...")
+        }
+        
+        let gifDuration = config.gifFrameDuration
+        let gifResolution = config.gifResolution
+        
+        let gifURL = await Task.detached(priority: .userInitiated) {
+            return GIFService.createGIF(from: tempPaths, frameDuration: gifDuration, resolution: gifResolution)
+        }.value
+        
+        guard let finalGIFURL = gifURL else {
+            transition(to: .error(message: "Failed to create GIF"))
+            return
+        }
+        
+        // 5. Save to Photos
+        if config.saveToPhotos {
+            var assetsToSave: [URL] = [finalGIFURL]
+            assetsToSave.append(contentsOf: tempPaths.map { URL(fileURLWithPath: $0) })
+            saveLocalFilesToLibrary(urls: assetsToSave)
+        }
+        
+        // 6. Review
+        // ONLY pass the GIF for review, as requested
+        let reviewItems = [finalGIFURL.absoluteString]
+        
+        transition(to: .review(images: reviewItems, index: 0))
+    }
+    
+    private func saveLocalFilesToLibrary(urls: [URL]) {
+        Task.detached(priority: .background) {
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else { return }
+            
+            try? await PHPhotoLibrary.shared().performChanges {
+                for url in urls {
+                    let creationRequest = PHAssetCreationRequest.forAsset()
+                    if url.pathExtension.lowercased() == "gif" {
+                         creationRequest.addResource(with: .photo, fileURL: url, options: nil)
+                    } else {
+                         creationRequest.addResource(with: .photo, fileURL: url, options: nil)
+                    }
+                }
+            }
+        }
     }
     
     private func saveToPhotoLibrary(urls: [String]) {
@@ -416,12 +653,7 @@ class StateMachine: ObservableObject {
             guard status == .authorized || status == .limited else { return }
             
             for urlString in urls {
-                // guard let url = URL(string: urlString) else { continue } // Not needed if we pass string to fetchImage
-                
                 do {
-                    // Use the camera service to fetch the image data
-                    // This handles both local files (LocalCameraClient) and remote URLs (SonyCameraClient)
-                    // correctly using the appropriate session/permissions.
                     let data = try await service.fetchImage(url: urlString)
                     
                     try await PHPhotoLibrary.shared().performChanges {
@@ -434,40 +666,54 @@ class StateMachine: ObservableObject {
             }
         }
     }
-    
+
     private func startReviewSequence() async {
         guard case .review(let images, _) = state else { return }
         
         for i in 0..<images.count {
-            // Update state index
             self.state = .review(images: images, index: i)
-            
-            // 1. Reset current image to show loading state
             self.currentReviewImage = nil
             
-            // 2. Fetch Image Data
+            if images[i].lowercased().hasSuffix(".gif") {
+                 try? await Task.sleep(nanoseconds: UInt64(config.gifPreviewDuration) * 1_000_000_000)
+                 continue
+            }
+
             do {
                 let data = try await cameraService.fetchImage(url: images[i])
                 if let image = UIImage(data: data) {
-                    // 3. Set image
                     self.currentReviewImage = image
-                    
-                    // 4. Wait for preview duration (ONLY start timer after image is ready)
                     try? await Task.sleep(nanoseconds: UInt64(config.previewDurationSec) * 1_000_000_000)
                 } else {
-                    // Failed to decode, skip quickly
-                    print("Failed to decode image at index \(i)")
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
             } catch {
-                print("Failed to fetch image at index \(i): \(error)")
-                // Show error or skip? Just wait a bit and move on
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
         
         if config.enableImageSharing {
-            transition(to: .sharingPrompt(images: images))
+            var shareItems = images
+            
+            // If in GIF mode, ensure we also share the source images (which were hidden from review)
+            if self.captureMode == .gif {
+                // Determine source images. We have them in 'capturedImages' (remote URLs) or 'tempPaths'
+                // But ShareSheet logic handles downloads.
+                // However, wait: capturedImages contians REMOTE URLs. tempPaths were local.
+                // startGIFCaptureSequence downloaded them to tempPaths.
+                // capturedImages has the remote URLs.
+                // If we pass remote URLs to SharingViews, it will download them AGAIN.
+                // Better to use the local tempPaths if we can.
+                // But StateMachine doesn't persist `tempPaths` instance variable.
+                // We should probably rely on `capturedImages` (remote) and let SharingView re-download? 
+                // Or: Since we just downloaded them to tempPaths, passing the remote URLs is inefficient.
+                // But we lost tempPaths scope.
+                // Compromise: Pass `capturedImages` (remote). SharingViews logic handles download.
+                // Ideally, we'd pass the temp paths.
+                shareItems.append(contentsOf: self.capturedImages)
+            }
+            
+            transition(to: .sharingPrompt(images: shareItems))
         } else {
             transition(to: .idle)
         }

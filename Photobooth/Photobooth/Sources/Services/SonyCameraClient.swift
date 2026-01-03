@@ -31,7 +31,6 @@ class SonyCameraClient: CameraService {
             _ = try await sendRPC(method: "startRecMode", params: [], to: endpoint)
             
             // 2. Set Postview Image Size to 2M for faster transfer
-            // This reduces transfer time significantly (from ~5s to <1s)
             try? await setPostviewImageSize("2M")
             
             DispatchQueue.main.async { self.isConnected = true }
@@ -46,7 +45,7 @@ class SonyCameraClient: CameraService {
         } catch let error as URLError {
             DispatchQueue.main.async { self.isConnected = false }
             if error.code == .timedOut || error.code == .cannotConnectToHost {
-                 throw CameraError.apiError(code: -1, message: "Connection timed out. Please ensure your iPad is connected to the Camera's Wi-Fi (e.g., DIRECT-xxxx:Sony).")
+                 throw CameraError.apiError(code: -1, message: "Connection timed out.")
             }
             throw error
         } catch {
@@ -85,6 +84,17 @@ class SonyCameraClient: CameraService {
             throw CameraError.invalidResponse
         }
         return urlArray
+    }
+    
+    func captureBurst(count: Int) async throws -> [String] {
+        // Simple single-shot loop - just call takePicture multiple times
+        var results: [String] = []
+        for i in 0..<count {
+            print("Capturing frame \(i + 1)/\(count)...")
+            let urls = try await takePicture()
+            results.append(contentsOf: urls)
+        }
+        return results
     }
     
     private func setPostviewImageSize(_ size: String) async throws {
@@ -137,7 +147,9 @@ class SonyCameraClient: CameraService {
         let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw CameraError.connectionFailed
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("RPC Failed: HTTP \(statusCode)")
+            throw CameraError.apiError(code: statusCode, message: "HTTP Error \(statusCode)")
         }
         
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

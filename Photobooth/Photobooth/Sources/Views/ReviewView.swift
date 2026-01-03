@@ -9,7 +9,12 @@ struct ReviewView: View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
-            if let image = stateMachine.currentReviewImage {
+            if currentIndex < images.count, isGIF(url: images[currentIndex]), let url = URL(string: images[currentIndex]) {
+                GIFPlayerView(url: url)
+                    .edgesIgnoringSafeArea(.all)
+                    .transition(.opacity)
+                    .id("GIF-\(currentIndex)")
+            } else if let image = stateMachine.currentReviewImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -30,5 +35,9 @@ struct ReviewView: View {
                     .padding(.bottom, 20)
             }
         }
+    }
+    
+    private func isGIF(url: String) -> Bool {
+        return url.lowercased().hasSuffix(".gif")
     }
 }
