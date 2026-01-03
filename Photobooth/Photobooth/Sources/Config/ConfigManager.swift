@@ -93,7 +93,7 @@ class ConfigManager: ObservableObject {
         self.gifFrameCount = 4
         self.gifCaptureInterval = 0.25
         self.gifFrameDuration = 0.25
-        self.gifPreviewDuration = 8.0
+        self.gifPreviewDuration = 6.0
         self.gifResolution = 0 // 720p
         save()
     }
