@@ -4,23 +4,23 @@ import Combine
 class ConfigManager: ObservableObject {
     static let shared = ConfigManager()
     
-    @Published var initialCountdownSec: Int
-    @Published var interShotCountdownSec: Int
-    @Published var photoCount: Int
-    @Published var previewDurationSec: Int
-    @Published var cameraEndpoint: String
-    @Published var cameraSSID: String
-    @Published var cameraPassword: String
-    @Published var useLocalCamera: Bool
-    @Published var saveToPhotos: Bool
-    @Published var showGuidanceText: Bool
-    @Published var enableImageSharing: Bool
-    @Published var enableGIFMode: Bool
-    @Published var gifFrameCount: Int
-    @Published var gifCaptureInterval: Double
-    @Published var gifFrameDuration: Double
-    @Published var gifPreviewDuration: Double
-    @Published var gifResolution: Int // 0: 720p, 1: 480p
+    @Published var initialCountdownSec: Int { didSet { save() } }
+    @Published var interShotCountdownSec: Int { didSet { save() } }
+    @Published var photoCount: Int { didSet { save() } }
+    @Published var previewDurationSec: Int { didSet { save() } }
+    @Published var cameraEndpoint: String { didSet { save() } }
+    @Published var cameraSSID: String { didSet { save() } }
+    @Published var cameraPassword: String { didSet { save() } }
+    @Published var useLocalCamera: Bool { didSet { save() } }
+    @Published var saveToPhotos: Bool { didSet { save() } }
+    @Published var showGuidanceText: Bool { didSet { save() } }
+    @Published var enableImageSharing: Bool { didSet { save() } }
+    @Published var enableGIFMode: Bool { didSet { save() } }
+    @Published var gifFrameCount: Int { didSet { save() } }
+    @Published var gifCaptureInterval: Double { didSet { save() } }
+    @Published var gifFrameDuration: Double { didSet { save() } }
+    @Published var gifPreviewDuration: Double { didSet { save() } }
+    @Published var gifResolution: Int { didSet { save() } } // 0: 720p, 1: 480p
 
     private init() {
         // Load from UserDefaults or use defaults
@@ -37,7 +37,7 @@ class ConfigManager: ObservableObject {
         self.enableImageSharing = UserDefaults.standard.object(forKey: "enableImageSharing") as? Bool ?? true // Default to true
 
         // Animated GIF Defaults
-        self.enableGIFMode = UserDefaults.standard.object(forKey: "enableGIFMode") as? Bool ?? false
+        self.enableGIFMode = UserDefaults.standard.object(forKey: "enableGIFMode") as? Bool ?? true
         self.gifFrameCount = UserDefaults.standard.object(forKey: "gifFrameCount") as? Int ?? 4
         self.gifCaptureInterval = UserDefaults.standard.object(forKey: "gifCaptureInterval") as? Double ?? 0.25
         self.gifFrameDuration = UserDefaults.standard.object(forKey: "gifFrameDuration") as? Double ?? 0.25
@@ -89,7 +89,7 @@ class ConfigManager: ObservableObject {
         self.showGuidanceText = true
         self.enableImageSharing = true
 
-        self.enableGIFMode = false
+        self.enableGIFMode = true
         self.gifFrameCount = 4
         self.gifCaptureInterval = 0.25
         self.gifFrameDuration = 0.25

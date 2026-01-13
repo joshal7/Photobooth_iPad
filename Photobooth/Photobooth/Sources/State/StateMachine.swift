@@ -317,6 +317,8 @@ class StateMachine: ObservableObject {
             // nothing stops us from triggering at 0.
             if let task = previousCaptureTask {
                 _ = await task.result
+                // If previous capture failed (transitioned to error), abort sequence
+                if case .error = state { return }
             }
             
             // 2. Countdown
@@ -352,6 +354,9 @@ class StateMachine: ObservableObject {
             
             // Run countdown
             for t in (1...countTime).reversed() {
+                // Abort if error occurred externally
+                if case .error = state { return }
+                
                 self.countdown = t
                 
                 // Hide photo counter when countdown reaches 1
@@ -385,20 +390,61 @@ class StateMachine: ObservableObject {
             // We start this task and move immediately to the next loop iteration (next countdown)
             // The next iteration will await this task before triggering *its* capture.
             previousCaptureTask = Task {
-                do {
-                    print("Triggering capture at \(Date())")
-                    let urls = try await cameraService.takePicture()
-                    print("Capture returned at \(Date())")
-                    
-                    await MainActor.run {
-                        if let first = urls.first {
-                            self.capturedImages.append(first)
+                var retries = 5
+                var captureSuccess = false
+                
+                while retries > 0 && !captureSuccess {
+                    do {
+                        print("Triggering capture at \(Date())")
+                        let urls = try await cameraService.takePicture()
+                        print("Capture returned at \(Date())")
+                        
+                        await MainActor.run {
+                            if let first = urls.first {
+                                self.capturedImages.append(first)
+                            }
                         }
+                        
+                        self.saveToPhotoLibrary(urls: urls)
+                        captureSuccess = true
+                        
+                    } catch let error as CameraError {
+                        if case .apiError(let code, _) = error, code == 1 {
+                            print("Camera busy (Error 1). Retrying in 2s...")
+                            retries -= 1
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        } else {
+                            print("Camera Error: \(error)")
+                            await MainActor.run {
+                                transition(to: .error(message: "Capture Failed: \(error.localizedDescription)"))
+                            }
+                            return
+                        }
+                    } catch let error as URLError {
+                        if error.code == .timedOut || error.code == .networkConnectionLost || error.code == .notConnectedToInternet {
+                            print("Network error (\(error.code.rawValue)). Retrying in 2s...")
+                            retries -= 1
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        } else {
+                             print("Network Error: \(error)")
+                             await MainActor.run {
+                                 transition(to: .error(message: "Network Error: \(error.localizedDescription)"))
+                             }
+                             return
+                        }
+                    } catch {
+                        print("Unexpected error: \(error)")
+                         await MainActor.run {
+                             transition(to: .error(message: "Error: \(error.localizedDescription)"))
+                         }
+                         return
                     }
-                    
-                    self.saveToPhotoLibrary(urls: urls)
-                } catch {
-                    print("Capture failed: \(error)")
+                }
+                
+                if !captureSuccess {
+                     await MainActor.run {
+                         transition(to: .error(message: "Failed to capture photo after multiple attempts. Check camera connection."))
+                     }
                 }
             }
             
