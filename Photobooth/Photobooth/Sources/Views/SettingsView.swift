@@ -46,6 +46,21 @@ struct SettingsView: View {
                             Text("480p").tag(1)
                         }
                         .pickerStyle(SegmentedPickerStyle())
+                        
+                        Divider()
+                        
+                        // GIF Retrieval Window
+                        Stepper("GIF Retrieval Window: \(config.gifRetrievalWindowHours) hrs", value: $config.gifRetrievalWindowHours, in: 1...72)
+                        
+                        // Bulk AirDrop Button
+                        Button(action: {
+                            bulkAirDropGIFs()
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Airdrop GIFs")
+                            }
+                        }
                     }
                 }
                 
@@ -174,5 +189,55 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+    
+    private func bulkAirDropGIFs() {
+        let hours = config.gifRetrievalWindowHours
+        
+        Task {
+            do {
+                let urls = try await GIFRetrievalService.fetchRecentGIFs(hours: hours)
+                
+                await MainActor.run {
+                    if urls.isEmpty {
+                        // Optional: Show alert if no GIFs found (omitted for simplicity as per request "no impact to runtime logic")
+                        print("No GIFs found in the last \(hours) hours.")
+                    } else {
+                        presentShareSheet(items: urls)
+                    }
+                }
+            } catch {
+                print("Failed to retrieve GIFs: \(error)")
+            }
+        }
+    }
+    
+    private func presentShareSheet(items: [Any]) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else { return }
+        
+        // If a presentation is already active (e.g. Settings sheet itself), we should present from there?
+        // SettingsView is likely presented as a sheet or in a nav view. 
+        // We generally want to present 'on top' of the top-most controller.
+        
+        let topController: UIViewController = rootVC.presentedViewController ?? rootVC
+        
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        
+        // Exclude irrelevant activities to focus on AirDrop/Save
+        activityVC.excludedActivityTypes = [
+            .addToReadingList,
+            .assignToContact,
+            .markupAsPDF
+        ]
+        
+        // iPad Popover configuration
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = topController.view
+            popover.sourceRect = CGRect(x: topController.view.bounds.midX, y: topController.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        
+        topController.present(activityVC, animated: true)
     }
 }

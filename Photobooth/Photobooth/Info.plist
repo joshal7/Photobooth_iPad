@@ -44,6 +44,8 @@
 	<string>We need access to the camera to take photos in Simulation Mode.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>We need access to save your photos to the library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to retrieve your GIFs for AirDrop.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>We need access to the local network to connect to the Sony Camera.</string>
 	<key>NSAppTransportSecurity</key>

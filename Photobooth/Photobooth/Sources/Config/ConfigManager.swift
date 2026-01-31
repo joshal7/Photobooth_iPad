@@ -21,6 +21,7 @@ class ConfigManager: ObservableObject {
     @Published var gifFrameDuration: Double { didSet { save() } }
     @Published var gifPreviewDuration: Double { didSet { save() } }
     @Published var gifResolution: Int { didSet { save() } } // 0: 720p, 1: 480p
+    @Published var gifRetrievalWindowHours: Int { didSet { save() } }
 
     private init() {
         // Load from UserDefaults or use defaults
@@ -43,6 +44,7 @@ class ConfigManager: ObservableObject {
         self.gifFrameDuration = UserDefaults.standard.object(forKey: "gifFrameDuration") as? Double ?? 0.25
         self.gifPreviewDuration = UserDefaults.standard.object(forKey: "gifPreviewDuration") as? Double ?? 8.0
         self.gifResolution = UserDefaults.standard.object(forKey: "gifResolution") as? Int ?? 0 // Default 720p
+        self.gifRetrievalWindowHours = UserDefaults.standard.object(forKey: "gifRetrievalWindowHours") as? Int ?? 24
         
         // Migration: Fix old default SSID if present
         if self.cameraSSID == "DIRECT-xxxx:Sony" {
@@ -74,6 +76,7 @@ class ConfigManager: ObservableObject {
         UserDefaults.standard.set(gifFrameDuration, forKey: "gifFrameDuration")
         UserDefaults.standard.set(gifPreviewDuration, forKey: "gifPreviewDuration")
         UserDefaults.standard.set(gifResolution, forKey: "gifResolution")
+        UserDefaults.standard.set(gifRetrievalWindowHours, forKey: "gifRetrievalWindowHours")
     }
     
     func resetToDefaults() {
@@ -95,6 +98,7 @@ class ConfigManager: ObservableObject {
         self.gifFrameDuration = 0.25
         self.gifPreviewDuration = 6.0
         self.gifResolution = 0 // 720p
+        self.gifRetrievalWindowHours = 24
         save()
     }
 }
