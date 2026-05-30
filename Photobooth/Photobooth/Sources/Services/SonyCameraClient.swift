@@ -124,9 +124,97 @@ class SonyCameraClient: CameraService {
         }
     }
     
+    func deleteLastCapturedImages(count: Int) async throws {
+        let cameraEndpoint = "\(config.cameraEndpoint)/camera"
+        let avContentEndpoint = "\(config.cameraEndpoint)/avContent"
+        
+        // 1. Switch Camera Function to "Contents Transfer" mode
+        print("Switching camera to Contents Transfer mode...")
+        do {
+            _ = try await sendRPC(method: "setCameraFunction", params: ["Contents Transfer"], to: cameraEndpoint, timeout: 5.0)
+        } catch {
+            // Camera might reboot its Wi-Fi AP immediately upon receiving the command, terminating the connection and throwing an error. We log it and proceed to wait for reconnection.
+            print("setCameraFunction to Contents Transfer terminated connection or failed: \(error). Proceeding to wait for reconnection...")
+        }
+        
+        // Restore Shooting Mode in a defer block
+        defer {
+            Task {
+                do {
+                    print("Restoring camera to Remote Shooting mode...")
+                    _ = try await self.sendRPC(method: "setCameraFunction", params: ["Remote Shooting"], to: cameraEndpoint, timeout: 5.0)
+                    // Re-establish rec mode handshake
+                    try await self.connect()
+                } catch {
+                    print("Failed to restore Remote Shooting mode: \(error)")
+                }
+            }
+        }
+        
+        // 2. Wait for camera to transition and iPad to reconnect (up to 25 seconds)
+        print("Waiting for camera to become online in Contents Transfer mode...")
+        var reconnected = false
+        let startTime = Date()
+        let pollParams: [String: Any] = [
+            "uri": "storage:memoryCard1",
+            "stIdx": 0,
+            "cnt": 1,
+            "view": "flat",
+            "sort": "descending"
+        ]
+        
+        while Date().timeIntervalSince(startTime) < 25.0 {
+            do {
+                // Try a quick RPC to see if the server is up and responsive in Contents Transfer mode.
+                // We poll using a count of 1 to be highly efficient.
+                _ = try await sendRPC(method: "getContentList", params: [pollParams], to: avContentEndpoint, version: "1.3", timeout: 3.0)
+                reconnected = true
+                print("Reconnected to camera in Contents Transfer mode!")
+                break
+            } catch {
+                print("Camera not reachable yet (waiting for Wi-Fi reconnection...): \(error.localizedDescription)")
+                try? await Task.sleep(nanoseconds: 1_500_000_000) // Sleep 1.5 seconds before retrying
+            }
+        }
+        
+        if !reconnected {
+            print("Failed to reconnect to camera after mode switch.")
+            throw CameraError.connectionFailed
+        }
+        
+        // 3. Fetch Last URIs
+        let getParams: [String: Any] = [
+            "uri": "storage:memoryCard1",
+            "stIdx": 0,
+            "cnt": count,
+            "view": "flat",
+            "sort": "descending"
+        ]
+        
+        let response = try await sendRPC(method: "getContentList", params: [getParams], to: avContentEndpoint, version: "1.3", timeout: 5.0)
+        
+        guard let result = response["result"] as? [Any],
+              let contentsList = result.first as? [[String: Any]] else {
+            throw CameraError.invalidResponse
+        }
+        
+        // Extract the 'uri' from each content item
+        let uris = contentsList.compactMap { $0["uri"] as? String }
+        if uris.isEmpty {
+            print("No URIs found to delete.")
+            return
+        }
+        
+        print("Found \(uris.count) URIs to delete. Deleting...")
+        
+        // 4. Delete Content
+        _ = try await sendRPC(method: "deleteContent", params: [["uri": uris]], to: avContentEndpoint, version: "1.1", timeout: 5.0)
+        print("Successfully deleted images from camera.")
+    }
+    
     // MARK: - JSON-RPC Helper
     
-    private func sendRPC(method: String, params: [Any], to urlString: String) async throws -> [String: Any] {
+    private func sendRPC(method: String, params: [Any], to urlString: String, version: String = "1.0", timeout: TimeInterval = 10.0) async throws -> [String: Any] {
         guard let url = URL(string: urlString) else {
             throw CameraError.connectionFailed
         }
@@ -134,12 +222,13 @@ class SonyCameraClient: CameraService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = timeout
         
         let payload: [String: Any] = [
             "method": method,
             "params": params,
             "id": 1,
-            "version": "1.0"
+            "version": version
         ]
         
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)

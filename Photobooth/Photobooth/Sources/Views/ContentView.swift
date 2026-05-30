@@ -250,6 +250,7 @@ struct ContentView: View {
         .statusBar(hidden: true)
         .sheet(isPresented: $showSettings) {
             SettingsView()
+                .environmentObject(stateMachine)
         }
     }
 }

@@ -653,16 +653,25 @@ class StateMachine: ObservableObject {
             return GIFService.createGIF(from: tempPaths, frameDuration: gifDuration, resolution: gifResolution)
         }.value
         
+        // Clean up temporary source frame files from disk
+        cleanupTempFiles(tempPaths)
+        
+        if !config.useLocalCamera {
+            // Defer the deletion to avoid 20-30s Wi-Fi drops mid-session
+            let frameCount = capturedImages.count
+            await MainActor.run {
+                config.pendingGIFFramesToDelete += frameCount
+            }
+        }
+        
         guard let finalGIFURL = gifURL else {
             transition(to: .error(message: "Failed to create GIF"))
             return
         }
         
-        // 5. Save to Photos
+        // 5. Save to Photos — only the final GIF, not the individual source frames
         if config.saveToPhotos {
-            var assetsToSave: [URL] = [finalGIFURL]
-            assetsToSave.append(contentsOf: tempPaths.map { URL(fileURLWithPath: $0) })
-            saveLocalFilesToLibrary(urls: assetsToSave)
+            saveLocalFilesToLibrary(urls: [finalGIFURL])
         }
         
         // 6. Review
@@ -686,6 +695,17 @@ class StateMachine: ObservableObject {
                          creationRequest.addResource(with: .photo, fileURL: url, options: nil)
                     }
                 }
+            }
+        }
+    }
+    
+    /// Removes temporary source frame files from disk after GIF creation.
+    private func cleanupTempFiles(_ paths: [String]) {
+        for path in paths {
+            do {
+                try FileManager.default.removeItem(atPath: path)
+            } catch {
+                print("Failed to clean up temp file at \(path): \(error)")
             }
         }
     }

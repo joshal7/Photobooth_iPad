@@ -22,6 +22,12 @@ class ConfigManager: ObservableObject {
     @Published var gifPreviewDuration: Double { didSet { save() } }
     @Published var gifResolution: Int { didSet { save() } } // 0: 720p, 1: 480p
     @Published var gifRetrievalWindowHours: Int { didSet { save() } }
+    @Published var pendingGIFFramesToDelete: Int { didSet { save() } }
+
+    // QR Code Configuration
+    @Published var isQRCodeEnabled: Bool { didSet { save() } }
+    @Published var qrCodeURLString: String { didSet { save() } }
+    @Published var daysUntilPhotosAvailable: Int { didSet { save() } }
 
     private init() {
         // Load from UserDefaults or use defaults
@@ -45,6 +51,13 @@ class ConfigManager: ObservableObject {
         self.gifPreviewDuration = UserDefaults.standard.object(forKey: "gifPreviewDuration") as? Double ?? 8.0
         self.gifResolution = UserDefaults.standard.object(forKey: "gifResolution") as? Int ?? 0 // Default 720p
         self.gifRetrievalWindowHours = UserDefaults.standard.object(forKey: "gifRetrievalWindowHours") as? Int ?? 24
+        self.pendingGIFFramesToDelete = UserDefaults.standard.object(forKey: "pendingGIFFramesToDelete") as? Int ?? 0
+
+        // QR Code Defaults
+        self.isQRCodeEnabled = UserDefaults.standard.object(forKey: "isQRCodeEnabled") as? Bool ?? false
+        let currentYear = Calendar.current.component(.year, from: Date())
+        self.qrCodeURLString = UserDefaults.standard.string(forKey: "qrCodeURLString") ?? "https://www.joshal.com/\(currentYear)"
+        self.daysUntilPhotosAvailable = UserDefaults.standard.object(forKey: "daysUntilPhotosAvailable") as? Int ?? 2
         
         // Migration: Fix old default SSID if present
         if self.cameraSSID == "DIRECT-xxxx:Sony" {
@@ -77,6 +90,11 @@ class ConfigManager: ObservableObject {
         UserDefaults.standard.set(gifPreviewDuration, forKey: "gifPreviewDuration")
         UserDefaults.standard.set(gifResolution, forKey: "gifResolution")
         UserDefaults.standard.set(gifRetrievalWindowHours, forKey: "gifRetrievalWindowHours")
+        UserDefaults.standard.set(pendingGIFFramesToDelete, forKey: "pendingGIFFramesToDelete")
+
+        UserDefaults.standard.set(isQRCodeEnabled, forKey: "isQRCodeEnabled")
+        UserDefaults.standard.set(qrCodeURLString, forKey: "qrCodeURLString")
+        UserDefaults.standard.set(daysUntilPhotosAvailable, forKey: "daysUntilPhotosAvailable")
     }
     
     func resetToDefaults() {
@@ -99,6 +117,12 @@ class ConfigManager: ObservableObject {
         self.gifPreviewDuration = 6.0
         self.gifResolution = 0 // 720p
         self.gifRetrievalWindowHours = 24
+        self.pendingGIFFramesToDelete = 0
+
+        self.isQRCodeEnabled = false
+        let currentYear = Calendar.current.component(.year, from: Date())
+        self.qrCodeURLString = "https://www.joshal.com/\(currentYear)"
+        self.daysUntilPhotosAvailable = 2
         save()
     }
 }

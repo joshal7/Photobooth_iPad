@@ -2,52 +2,109 @@ import SwiftUI
 
 struct SharingOverlayView: View {
     @EnvironmentObject var stateMachine: StateMachine
+    private let config = ConfigManager.shared
     
     var body: some View {
         ZStack {
             Color.black.opacity(0.7)
                 .edgesIgnoringSafeArea(.all)
             
-            VStack(spacing: 30) {
-                Text("Would you like your photos?")
-                    .font(.system(size: 40, weight: .bold))
-                    .foregroundColor(.white)
-                
-                HStack(spacing: 40) {
-                    // AirDrop Button
-                    Button(action: {
-                        stateMachine.selectAirDrop()
-                    }) {
-                        VStack {
-                            Image(systemName: "airplayaudio") // Closest to AirDrop
-                                .font(.system(size: 50))
-                            Text("AirDrop")
-                                .font(.headline)
-                            Text("(iPhone Only)")
-                                .font(.caption)
+            GeometryReader { geo in
+                if config.isQRCodeEnabled {
+                    // ── Split layout: prompt on top, QR code on bottom ──
+                    VStack(spacing: 0) {
+                        // Top half: existing prompt + buttons
+                        VStack(spacing: 30) {
+                            Spacer()
+                            
+                            Text("Would you like your photos?")
+                                .font(.system(size: 40, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            sharingButtons
+                            
+                            Spacer()
                         }
-                        .frame(width: 200, height: 200)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
-                    }
-                    
-                    // No Thanks Button
-                    Button(action: {
-                        stateMachine.skipSharing()
-                    }) {
-                        VStack {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 50))
-                            Text("No Thanks")
-                                .font(.headline)
+                        .frame(height: geo.size.height * 0.5)
+                        
+                        // Divider
+                        Rectangle()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(height: 1)
+                        
+                        // Bottom half: QR code
+                        VStack(spacing: 16) {
+                            Spacer()
+                            
+                            let days = config.daysUntilPhotosAvailable
+                            Text("Full resolution images and animated GIFs available for download within \(days) day\(days == 1 ? "" : "s") here:")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                            
+                            QRCodeGeneratorView(urlString: config.qrCodeURLString)
+                                .frame(maxWidth: geo.size.height * 0.35, maxHeight: geo.size.height * 0.35)
+                            
+                            Spacer()
                         }
-                        .frame(width: 200, height: 200)
-                        .background(Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(20)
+                        .frame(height: geo.size.height * 0.5 - 1) // account for divider
                     }
+                } else {
+                    // ── Original full-screen layout ──
+                    VStack(spacing: 30) {
+                        Spacer()
+                        
+                        Text("Would you like your photos?")
+                            .font(.system(size: 40, weight: .bold))
+                            .foregroundColor(.white)
+                        
+                        sharingButtons
+                        
+                        Spacer()
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
+            }
+        }
+    }
+    
+    /// Extracted so both branches share identical button markup.
+    private var sharingButtons: some View {
+        HStack(spacing: 40) {
+            // AirDrop Button
+            Button(action: {
+                stateMachine.selectAirDrop()
+            }) {
+                VStack {
+                    Image(systemName: "airplayaudio") // Closest to AirDrop
+                        .font(.system(size: 50))
+                    Text("AirDrop")
+                        .font(.headline)
+                    Text("(iPhone Only)")
+                        .font(.caption)
+                }
+                .frame(width: 200, height: 200)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(20)
+            }
+            
+            // No Thanks Button
+            Button(action: {
+                stateMachine.skipSharing()
+            }) {
+                VStack {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 50))
+                    Text("No Thanks")
+                        .font(.headline)
+                }
+                .frame(width: 200, height: 200)
+                .background(Color.gray)
+                .foregroundColor(.white)
+                .cornerRadius(20)
             }
         }
     }
@@ -93,7 +150,7 @@ struct AirDropInstructionsView: View {
                         stateMachine.skipSharing()
                     }
                     .buttonStyle(ActionButtonStyle(color: .green))
-                    .frame(width: 200) // Make Done button prominent
+                    .frame(width: 200)
                     
                     Text("Or try another way:")
                         .font(.subheadline)
@@ -110,10 +167,8 @@ struct AirDropInstructionsView: View {
                 }
             } else {
                 // Active Sharing State (Preparing or Sheet Presented)
-                // We combine these to show instructions while the sheet is up
                 ZStack {
                     VStack(spacing: 20) {
-                        // Instructions at the top
                         VStack(alignment: .leading, spacing: 20) {
                             Text("(1) Settings > General > Airdrop > Everyone for 10 minutes")
                                 .font(.title2)
@@ -125,9 +180,9 @@ struct AirDropInstructionsView: View {
                                 .bold()
                                 .foregroundColor(.white)
                         }
-                        .fixedSize() // Ensure container hugs text so it centers properly as a block
-                        .frame(maxWidth: .infinity) // Center the block horizontally
-                        .padding(.top, 10) // Moved up further (was 40) to increase space from sheet
+                        .fixedSize()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 10)
                         
                         Spacer()
                         

@@ -3,6 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var config = ConfigManager.shared
     @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject var stateMachine: StateMachine
+    @State private var isCleaningFrames = false
+    @State private var alertMessage: String?
+    @State private var showAlert = false
     
     var body: some View {
         NavigationView {
@@ -47,7 +51,30 @@ struct SettingsView: View {
                         }
                         .pickerStyle(SegmentedPickerStyle())
                         
-                        Divider()
+                        if !config.useLocalCamera {
+                            if config.pendingGIFFramesToDelete > 0 {
+                                Button(action: {
+                                    cleanUpGIFFrames()
+                                }) {
+                                    HStack {
+                                        if isCleaningFrames {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle())
+                                                .padding(.trailing, 5)
+                                            Text("Cleaning...")
+                                        } else {
+                                            Image(systemName: "trash")
+                                            Text("Clean Up Sony Camera GIF Frames (\(config.pendingGIFFramesToDelete))")
+                                        }
+                                    }
+                                }
+                                .disabled(isCleaningFrames)
+                                .foregroundColor(isCleaningFrames ? .gray : .red)
+                            } else {
+                                Text("No pending GIF frames to clean.")
+                                    .foregroundColor(.gray)
+                            }
+                        }
                         
                         // GIF Retrieval Window
                         Stepper("GIF Retrieval Window: \(config.gifRetrievalWindowHours) hrs", value: $config.gifRetrievalWindowHours, in: 1...72)
@@ -90,6 +117,30 @@ struct SettingsView: View {
                             }
                         }
                     ))
+                    
+                    Toggle("Enable QR Code", isOn: $config.isQRCodeEnabled)
+                    
+                    if config.isQRCodeEnabled {
+                        HStack {
+                            Text("Website Link")
+                            Spacer()
+                            TextField("https://...", text: $config.qrCodeURLString)
+                                .multilineTextAlignment(.trailing)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                                .keyboardType(.URL)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        Picker("Days Until Available", selection: $config.daysUntilPhotosAvailable) {
+                            Text("1 day").tag(1)
+                            Text("2 days").tag(2)
+                            Text("3 days").tag(3)
+                            Text("5 days").tag(5)
+                            Text("7 days").tag(7)
+                        }
+                        .pickerStyle(.menu)
+                    }
                 }
                 
                 Section(header: Text("Camera Configuration")) {
@@ -139,7 +190,7 @@ struct SettingsView: View {
                             }
                         }
                         
-
+ 
                         
                     }
 
@@ -180,6 +231,13 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .alert(isPresented: $showAlert) {
+                Alert(
+                    title: Text("Camera Maintenance"),
+                    message: Text(alertMessage ?? ""),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
@@ -239,5 +297,42 @@ struct SettingsView: View {
         }
         
         topController.present(activityVC, animated: true)
+    }
+    
+    private func cleanUpGIFFrames() {
+        isCleaningFrames = true
+        let count = config.pendingGIFFramesToDelete
+        
+        Task {
+            let cameraService = SonyCameraClient(config: config)
+            do {
+                try await cameraService.deleteLastCapturedImages(count: count)
+                
+                // Wait 2.0 seconds for the camera to fully transition back to Remote Shooting mode
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                
+                await MainActor.run {
+                    config.pendingGIFFramesToDelete = 0
+                    isCleaningFrames = false
+                    alertMessage = "Successfully deleted \(count) source frames from the Sony SD card."
+                    showAlert = true
+                    
+                    // Force the state machine to re-initialize and reconnect the camera
+                    stateMachine.forceConnection()
+                }
+            } catch {
+                print("Failed to clean up GIF frames: \(error)")
+                
+                // Even on failure, wait and attempt reconnect to restore state
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    isCleaningFrames = false
+                    alertMessage = "Failed to clean up GIF frames. Please check your camera Wi-Fi connection and try again.\n\nError: \(error.localizedDescription)"
+                    showAlert = true
+                    
+                    stateMachine.forceConnection()
+                }
+            }
+        }
     }
 }
